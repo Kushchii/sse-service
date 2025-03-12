@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: transaction_service
+  data:
+    r2dbc:
+      repositories:
+        enabled: true
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/transaction_service
+    username: root
+    password: password
+  liquibase:
+    change-log: liquibase/changelog-master.yaml
+    url: jdbc:postgresql://localhost:5432/transaction_service
+    user: ${spring.r2dbc.username}
+    password: ${spring.r2dbc.password}
+  datasource:
+    hikari:
+      connection-timeout: 10000 # 10 sec
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
