@@ -10,19 +10,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
+import reactor.core.publisher.Sinks;
 
-import java.sql.Timestamp;
-import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 
-@RequiredArgsConstructor
-@Slf4j
 @Service
+@Slf4j
+@RequiredArgsConstructor
 public class TransactionServiceImpl implements TransactionService {
 
     private final TransactionMapper transactionMapper;
     private final TransactionRepository transactionRepository;
+
+    private final Sinks.Many<TransactionsEntity> newTransactionsSink = Sinks.many().multicast().directBestEffort();
+    private final Sinks.Many<TransactionsEntity> allTransactionsSink = Sinks.many().replay().all();
 
     @Override
     public Mono<TransactionsResponse> transactions(TransactionsRequest request) {
@@ -35,30 +37,35 @@ public class TransactionServiceImpl implements TransactionService {
 
     @Override
     public Flux<TransactionsEntity> streamAllTransactions() {
-        return transactionRepository.findAll()
-                .doOnTerminate(() -> log.info("Stream finished"));
+        return allTransactionsSink.asFlux()
+                .doOnNext(tx -> log.info("Streaming all transactions: {}", tx.getTransactionId()))
+                .doOnTerminate(() -> log.info("Stream all transactions finished"));
     }
 
     @Override
     public Flux<TransactionsEntity> streamNewTransactions() {
-        return Flux.interval(Duration.ofSeconds(2))
-                .flatMap(tick -> Flux.defer(() -> {
-                    Timestamp since = Timestamp.from(Instant.now().minusSeconds(2));
-                    return transactionRepository.findTransactionsSince(since);
-                }))
-                .distinctUntilChanged(TransactionsEntity::getTransactionId)
-                .onBackpressureLatest()
-                .retryWhen(Retry.fixedDelay(5, Duration.ofSeconds(3)))
+        Instant subscriptionTime = Instant.now();
+        return newTransactionsSink.asFlux()
+                .filter(tx -> tx.getCreatedAt().toInstant(ZoneOffset.UTC).isAfter(subscriptionTime))
+                .doOnSubscribe(s -> log.info("Subscribed to new transactions stream at {}", subscriptionTime))
                 .doOnNext(tx -> log.info("New transaction streamed: {}", tx.getTransactionId()))
-                .doOnCancel(() -> log.info("Stream cancelled"))
-                .doOnTerminate(() -> log.info("Stream finished"))
-                .share();
+                .doOnCancel(() -> log.info("Stream new transactions cancelled"))
+                .doOnTerminate(() -> log.info("Stream new transactions finished"));
     }
 
     private Mono<TransactionsEntity> processTransactionAndSave(TransactionsRequest request) {
         TransactionsEntity entity = transactionMapper.toEntity(request);
         return transactionRepository.save(entity)
-                .doOnSuccess(savedEntity -> log.info("Transaction entity saved: {}", savedEntity.getTransactionId()));
+                .doOnSuccess(savedEntity -> {
+                    log.info("Transaction entity saved: {}", savedEntity.getTransactionId());
+                    publishTransaction(savedEntity);
+                });
+    }
+
+    // Метод для додавання транзакції до потоку
+    public void publishTransaction(TransactionsEntity transaction) {
+        Sinks.EmitResult result = newTransactionsSink.tryEmitNext(transaction);
+        log.info("Emitted to sink: {}, result: {}", transaction.getTransactionId(), result);
     }
 
     private Mono<Void> processTransaction(TransactionsEntity entity) {

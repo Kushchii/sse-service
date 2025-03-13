@@ -19,7 +19,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @DirtiesContext
 @AutoConfigureWebTestClient(timeout = "PT10M")
 @Tag("FunctionalTest")
-public abstract class BaseFunctionalTest {
+public abstract class BaseFunctionalTest extends BaseTest {
 
     private static final String JDBC_PREFIX = "jdbc";
     private static final String R2DBC_PREFIX = "r2dbc";

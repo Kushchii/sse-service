@@ -24,10 +24,13 @@ public class TransactionHandler extends BaseHandler {
     private final TransactionService transactionService;
 
     public Mono<ServerResponse> transactions(ServerRequest request) {
-        log.info("Transaction request received ");
+        log.info("Transaction request received");
         return request.bodyToMono(TransactionsRequest.class)
+                .doOnNext(req -> log.info("Parsed request: {}", req))
                 .flatMap(transactionService::transactions)
-                .flatMap(it -> toServerResponse(HttpStatus.OK, it));
+                .doOnSuccess(response -> log.info("Response sent: {}", response))
+                .flatMap(it -> toServerResponse(HttpStatus.OK, it))
+                .doOnError(e -> log.error("Error processing transaction request", e));
     }
 
     public Mono<ServerResponse> streamAllTransactions(ServerRequest request) {
