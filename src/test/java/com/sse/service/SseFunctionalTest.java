@@ -1,6 +1,5 @@
-package com.sse.service.service;
+package com.sse.service;
 
-import com.sse.service.BaseFunctionalTest;
 import com.sse.service.api.request.TransactionsRequest;
 import com.sse.service.api.response.TransactionsResponse;
 import com.sse.service.persistent.postgres.entity.TransactionsEntity;
@@ -33,7 +32,7 @@ class SseFunctionalTest extends BaseFunctionalTest {
     private TransactionsRequest createTransactionRequest(UUID uuid) {
         var request = random(TransactionsRequest.class);
         request.setId(uuid);
-        System.out.println("Created request: " + request); // Тимчасово замінюємо log
+        System.out.println("Created request: " + request);
         return request;
     }
 
@@ -66,8 +65,8 @@ class SseFunctionalTest extends BaseFunctionalTest {
                 .getResponseBody();
 
         StepVerifier.create(allTransactionsStream)
-                .expectNextMatches(tx -> tx.getTransactionId().equals(TRANSACTION_ID_1)) // Додаємо toString()
-                .expectNextMatches(tx -> tx.getTransactionId().equals(TRANSACTION_ID_2)) // Додаємо toString()
+                .expectNextMatches(tx -> tx.getTransactionId().equals(TRANSACTION_ID_1))
+                .expectNextMatches(tx -> tx.getTransactionId().equals(TRANSACTION_ID_2))
                 .thenCancel()
                 .verify(Duration.ofSeconds(5));
     }

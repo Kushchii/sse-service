@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
@@ -32,21 +34,28 @@ public class TransactionServiceImpl implements TransactionService {
                 .flatMap(this::processTransaction)
                 .doOnSuccess(it -> log.info("Transaction processed successfully: {}", request.getId()))
                 .onErrorResume(e -> handleTransactionError(request, e).then())
-                .thenReturn(new TransactionsResponse("Transaction processed successfully"));
+                .thenReturn(new TransactionsResponse("Transaction processed successfully"))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override
     public Flux<TransactionsEntity> streamAllTransactions() {
         return allTransactionsSink.asFlux()
+                .timeout(Duration.ofMinutes(1))
+                .publishOn(Schedulers.parallel())
                 .doOnNext(tx -> log.info("Streaming all transactions: {}", tx.getTransactionId()))
-                .doOnTerminate(() -> log.info("Stream all transactions finished"));
+                .doOnTerminate(() -> log.info("Stream all transactions finished"))
+                .doFinally(signal -> log.info("Stream all transactions finalized with signal: {}", signal));
     }
 
     @Override
     public Flux<TransactionsEntity> streamNewTransactions() {
-        Instant subscriptionTime = Instant.now();
+        var subscriptionTime = Instant.now();
         return newTransactionsSink.asFlux()
+                .publishOn(Schedulers.parallel())
+                .onBackpressureBuffer(1000)
                 .filter(tx -> tx.getCreatedAt().toInstant(ZoneOffset.UTC).isAfter(subscriptionTime))
+                .doOnDiscard(TransactionsEntity.class, tx -> log.warn("Transaction discarded: {}", tx.getTransactionId()))
                 .doOnSubscribe(s -> log.info("Subscribed to new transactions stream at {}", subscriptionTime))
                 .doOnNext(tx -> log.info("New transaction streamed: {}", tx.getTransactionId()))
                 .doOnCancel(() -> log.info("Stream new transactions cancelled"))
@@ -56,16 +65,18 @@ public class TransactionServiceImpl implements TransactionService {
     private Mono<TransactionsEntity> processTransactionAndSave(TransactionsRequest request) {
         TransactionsEntity entity = transactionMapper.toEntity(request);
         return transactionRepository.save(entity)
+                .retry(3)
                 .doOnSuccess(savedEntity -> {
                     log.info("Transaction entity saved: {}", savedEntity.getTransactionId());
                     publishTransaction(savedEntity);
                 });
     }
 
-    // Метод для додавання транзакції до потоку
     public void publishTransaction(TransactionsEntity transaction) {
-        Sinks.EmitResult result = newTransactionsSink.tryEmitNext(transaction);
-        log.info("Emitted to sink: {}, result: {}", transaction.getTransactionId(), result);
+        Sinks.EmitResult resultAll = allTransactionsSink.tryEmitNext(transaction);
+        Sinks.EmitResult resultNew = newTransactionsSink.tryEmitNext(transaction);
+        log.info("Emitted to new transaction sink: {}, result: {}", transaction.getTransactionId(), resultNew);
+        log.info("Emitted to all transaction sink: {}, result: {}", transaction.getTransactionId(), resultAll);
     }
 
     private Mono<Void> processTransaction(TransactionsEntity entity) {
