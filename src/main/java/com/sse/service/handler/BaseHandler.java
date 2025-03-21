@@ -13,8 +13,4 @@ public abstract class BaseHandler {
         return ServerResponse.status(status).contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body);
     }
-
-    protected Mono<ServerResponse> toServerResponse(HttpStatus status) {
-        return ServerResponse.status(status).build();
-    }
 }

@@ -42,9 +42,6 @@ public class TransactionServiceImpl implements TransactionService {
     @Override
     public Flux<TransactionsEntity> streamAllTransactions() {
         return allTransactionsSink.asFlux()
-                .sort(Comparator.comparing(TransactionsEntity::getCreatedAt))
-                .timeout(Duration.ofMinutes(1))
-                .publishOn(Schedulers.parallel())
                 .doOnNext(tx -> log.info("Streaming all transactions: {}", tx.getTransactionId()))
                 .doOnTerminate(() -> log.info("Stream all transactions finished"))
                 .doFinally(signal -> log.info("Stream all transactions finalized with signal: {}", signal));
@@ -66,7 +63,7 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     private Mono<TransactionsEntity> processTransactionAndSave(TransactionsRequest request) {
-        TransactionsEntity entity = transactionMapper.toEntity(request);
+        var entity = transactionMapper.toEntity(request);
         return transactionRepository.save(entity)
                 .retryWhen(Retry.backoff(3, Duration.ofSeconds(1)))
                 .doOnSuccess(savedEntity -> {
@@ -76,8 +73,8 @@ public class TransactionServiceImpl implements TransactionService {
     }
 
     public void publishTransaction(TransactionsEntity transaction) {
-        Sinks.EmitResult resultAll = allTransactionsSink.tryEmitNext(transaction);
-        Sinks.EmitResult resultNew = newTransactionsSink.tryEmitNext(transaction);
+        var resultAll = allTransactionsSink.tryEmitNext(transaction);
+        var resultNew = newTransactionsSink.tryEmitNext(transaction);
         log.info("Emitted to new transaction sink: {}, result: {}", transaction.getTransactionId(), resultNew);
         log.info("Emitted to all transaction sink: {}, result: {}", transaction.getTransactionId(), resultAll);
     }
